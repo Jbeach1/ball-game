@@ -134,10 +134,8 @@
   .srow .lab .val { margin-left:auto; color:#7fd3ff; font-weight:700; font-variant-numeric: tabular-nums; }
   .srow input[type=range] { width:100%; height:34px; accent-color:#2f9bd6; }
   .srow .desc { font-size:11.5px; color:#87a9bc; margin-top:-2px; }
-  .sheetBtns { display:flex; gap:10px; margin-top:16px; }
-  #resetCfg { flex:1; background:#123c56; color:#cfe8f6; border:none; border-radius:10px; padding:13px; font-size:14px; font-weight:600; cursor:pointer; }
-  #regenBtn { flex:2; background:#1f7a4d; color:#dfffec; border:none; border-radius:10px; padding:13px; font-size:15px; font-weight:700; cursor:pointer; }
-  #resetCfg:active, #regenBtn:active { transform: scale(0.97); }
+  #resetCfg { width:100%; margin-top:16px; background:#123c56; color:#cfe8f6; border:none; border-radius:10px; padding:13px; font-size:14px; font-weight:600; cursor:pointer; }
+  #resetCfg:active { transform: scale(0.97); }
 
   /* Confirm modal */
   #modal {
@@ -214,10 +212,7 @@
     <input type="range" id="sCurve" min="0" max="0.35" step="0.01">
     <div class="desc">Visual only — bends arrows so overlapping throws fan apart.</div>
   </div>
-  <div class="sheetBtns">
-    <button id="resetCfg">Reset</button>
-    <button id="regenBtn">Regenerate</button>
-  </div>
+  <button id="resetCfg">Reset to defaults</button>
 </div>
 
 <div id="modal">
@@ -596,6 +591,13 @@ function drawPlayers() {
     toIdx = state.order[(f + 1) % n];
     fCol = stepColor(f, n);
   }
+  // map each player -> its position in the throw cycle (0 = start), for the badge
+  let orderPos = null, N = 0;
+  if (state.order) {
+    N = state.order.length;
+    orderPos = new Array(state.players.length).fill(-1);
+    state.order.forEach((pi, k) => { orderPos[pi] = k; });
+  }
   state.players.forEach((p, i) => {
     const [x, y] = toPx(p);
     const isStart = i === state.start;
@@ -626,6 +628,29 @@ function drawPlayers() {
     ctx.textBaseline = 'middle';
     ctx.fillText(String(i + 1), x, y + 0.5);
   });
+
+  // second pass: throw-order badge on each player's top-right (so the whole
+  // sequence reads straight off the player positions: 1 -> 2 -> 3 -> ...)
+  if (orderPos) {
+    state.players.forEach((p, i) => {
+      if (orderPos[i] < 0) return;
+      const [x, y] = toPx(p);
+      const pos = orderPos[i];
+      const bx = x + R * 0.78, by = y - R * 0.78, rb = 12;
+      ctx.beginPath();
+      ctx.arc(bx, by, rb, 0, Math.PI * 2);
+      ctx.fillStyle = stepColor(pos, N);
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      ctx.fillStyle = '#08222f';
+      ctx.font = 'bold 13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(pos + 1), bx, by + 0.5);
+    });
+  }
 }
 
 // Sequence colour: sweep green -> teal -> blue -> violet across the order,
@@ -646,21 +671,21 @@ function drawArrows() {
     // show every throw, coloured by order
     for (let i = 0; i < n; i++) {
       const [from, to] = seg(i);
-      drawArrow(from, to, i + 1, i === n - 1, R, { color: stepColor(i, n), badge: true });
+      drawArrow(from, to, i === n - 1, R, { color: stepColor(i, n) });
     }
   } else {
     // isolate one throw: others faint, the chosen one bright and on top
     for (let i = 0; i < n; i++) {
       if (i === focus) continue;
       const [from, to] = seg(i);
-      drawArrow(from, to, i + 1, i === n - 1, R, { color: stepColor(i, n), alpha: 0.10, thin: true });
+      drawArrow(from, to, i === n - 1, R, { color: stepColor(i, n), alpha: 0.10, thin: true });
     }
     const [from, to] = seg(focus);
-    drawArrow(from, to, focus + 1, focus === n - 1, R, { color: stepColor(focus, n), badge: true, bold: true });
+    drawArrow(from, to, focus === n - 1, R, { color: stepColor(focus, n), bold: true });
   }
 }
 
-function drawArrow(from, to, seq, dashed, R, opts) {
+function drawArrow(from, to, dashed, R, opts) {
   opts = opts || {};
   const color = opts.color || '#78f0b4';
   const lw = opts.bold ? 6 : (opts.thin ? 2.5 : 4.5);
@@ -706,26 +731,6 @@ function drawArrow(from, to, seq, dashed, R, opts) {
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.fill();
-
-  // sequence badge at bezier midpoint (t=0.5)
-  if (opts.badge) {
-    const t = 0.5;
-    const px = (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx;
-    const py = (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by;
-    const br = opts.bold ? 15 : 12.5;
-    ctx.beginPath();
-    ctx.arc(px, py, br, 0, Math.PI*2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = color;
-    ctx.stroke();
-    ctx.fillStyle = '#0a2c40';
-    ctx.font = `bold ${opts.bold ? 16 : 14}px -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(seq), px, py + 0.5);
-  }
   ctx.restore();
 }
 
@@ -853,13 +858,6 @@ SLIDERS.forEach(([sid, vid, ckey, fmt]) => {
 document.getElementById('resetCfg').addEventListener('click', () => {
   state.cfg = { ...DEFAULT_CFG };
   syncSliders(); save(); regen(); draw();
-});
-document.getElementById('regenBtn').addEventListener('click', () => {
-  if (state.players.length < 3 || state.poly.length < 3) {
-    flashHint('Add at least 3 players and a pool first');
-    return;
-  }
-  generate();  // full re-solve with current weights (also works before first Generate)
 });
 
 /* -------------------- input handling -------------------- */
