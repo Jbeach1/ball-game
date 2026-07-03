@@ -84,6 +84,59 @@
   .tbtn.gen.active { background: #27c073; }
   .tbtn.clr { background: #6a2330; color: #ffd6dd; }
 
+  /* Step scrubber (inside order bar) */
+  #stepControls { display:flex; gap:6px; padding: 2px 14px 8px; }
+  #stepControls button {
+    flex:0 0 auto; min-height:40px; padding:0 15px; border:none; border-radius:10px;
+    background:#123c56; color:#cfe8f6; font-size:15px; font-weight:600; cursor:pointer;
+  }
+  #stepControls button:active { transform: scale(0.95); }
+  #stepControls button.active { background:#2f9bd6; color:#fff; }
+  #playBtn { flex:1 1 auto; }
+  #stepChips { display:flex; gap:6px; overflow-x:auto; padding: 0 14px 8px; -webkit-overflow-scrolling:touch; }
+  #stepChips::-webkit-scrollbar { display:none; }
+  .chip {
+    flex:0 0 auto; padding:9px 12px; border-radius:999px; background:#123c56; color:#cfe8f6;
+    font-size:13px; font-weight:700; white-space:nowrap; border:2px solid transparent; cursor:pointer;
+  }
+  .chip.sel { color:#fff; }
+  #stepDetail { padding: 0 14px 12px; font-size:14px; line-height:1.4; color:#dbeefb; }
+  #stepDetail b { color:#fff; }
+
+  /* Floating settings button */
+  #gear {
+    position: absolute; top: calc(env(safe-area-inset-top) + 10px); right: 12px; z-index: 6;
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid rgba(120,190,230,0.3);
+    background: rgba(7,30,43,0.82); backdrop-filter: blur(6px);
+    color: #cfe8f6; font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  }
+  #gear:active { transform: scale(0.92); }
+
+  /* Weights bottom sheet */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 16;
+    background: #0c3247; border-top: 1px solid rgba(120,190,230,0.25);
+    border-radius: 18px 18px 0 0;
+    padding: 14px 18px calc(env(safe-area-inset-bottom) + 16px);
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.55);
+    transform: translateY(115%); transition: transform .28s ease;
+    max-height: 82vh; overflow-y: auto;
+  }
+  #sheet.open { transform: translateY(0); }
+  .sheetHead { display:flex; align-items:center; margin-bottom: 4px; }
+  .sheetHead h3 { font-size: 16px; }
+  .sheetHead button { margin-left:auto; background:#2f9bd6; color:#fff; border:none; border-radius:9px; padding:9px 18px; font-size:14px; font-weight:600; cursor:pointer; }
+  .srow { padding: 12px 0 2px; }
+  .srow .lab { display:flex; font-size:14px; color:#bcdcec; margin-bottom:2px; }
+  .srow .lab b { color:#fff; font-weight:600; }
+  .srow .lab .val { margin-left:auto; color:#7fd3ff; font-weight:700; font-variant-numeric: tabular-nums; }
+  .srow input[type=range] { width:100%; height:34px; accent-color:#2f9bd6; }
+  .srow .desc { font-size:11.5px; color:#87a9bc; margin-top:-2px; }
+  #resetCfg { width:100%; margin-top:12px; background:#123c56; color:#cfe8f6; border:none; border-radius:10px; padding:12px; font-size:14px; font-weight:600; cursor:pointer; }
+
   /* Confirm modal */
   #modal {
     position: fixed; inset: 0; z-index: 20;
@@ -110,6 +163,7 @@
 <body>
 <div id="app">
   <div id="banner"><div id="hint">Tap <b>Draw</b>, then trace your pool shape</div></div>
+  <button id="gear" aria-label="Weights">⚙️</button>
   <canvas id="canvas"></canvas>
 
   <div id="orderBar">
@@ -117,7 +171,14 @@
       <span>🏐</span><span>Throw order</span><span class="chev">▲</span>
     </div>
     <div id="orderNotice"></div>
-    <div id="orderList"></div>
+    <div id="stepControls">
+      <button id="allBtn" class="active">All</button>
+      <button id="prevBtn">‹</button>
+      <button id="playBtn">▸ Play</button>
+      <button id="nextBtn">›</button>
+    </div>
+    <div id="stepChips"></div>
+    <div id="stepDetail"></div>
   </div>
 
   <div id="toolbar">
@@ -127,6 +188,31 @@
     <button class="tbtn gen" id="genBtn"><span class="ic">⚡</span>Generate</button>
     <button class="tbtn clr" id="clearBtn"><span class="ic">🗑️</span>Clear</button>
   </div>
+</div>
+
+<div id="sheet">
+  <div class="sheetHead"><h3>⚙️ Algorithm weights</h3><button id="sheetClose">Done</button></div>
+  <div class="srow">
+    <div class="lab"><b>Cross-pool preference</b><span class="val" id="vLat"></span></div>
+    <input type="range" id="sLat" min="0" max="3" step="0.1">
+    <div class="desc">Higher = punish throws that hug the edge (laterals) harder.</div>
+  </div>
+  <div class="srow">
+    <div class="lab"><b>Ideal-length pull</b><span class="val" id="vLen"></span></div>
+    <input type="range" id="sLen" min="0" max="3" step="0.1">
+    <div class="desc">Higher = insist more on the sweet-spot throw distance.</div>
+  </div>
+  <div class="srow">
+    <div class="lab"><b>Sweet-spot length</b><span class="val" id="vStar"></span></div>
+    <input type="range" id="sStar" min="0.2" max="1" step="0.05">
+    <div class="desc">Target throw distance, as a fraction of the pool's longest span.</div>
+  </div>
+  <div class="srow">
+    <div class="lab"><b>Arrow curve</b><span class="val" id="vCurve"></span></div>
+    <input type="range" id="sCurve" min="0" max="0.35" step="0.01">
+    <div class="desc">Visual only — bends arrows so overlapping throws fan apart.</div>
+  </div>
+  <button id="resetCfg">Reset to defaults</button>
 </div>
 
 <div id="modal">
@@ -152,13 +238,23 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const hintEl = document.getElementById('hint');
 
+// Tunable algorithm + display weights (editable via the ⚙️ sheet).
+const DEFAULT_CFG = {
+  wLat:  1.0,   // lateral (edge-hugging) penalty weight
+  wLen:  1.5,   // deviation-from-ideal-length penalty weight
+  dStar: 0.6,   // ideal throw length as a fraction of max pairwise distance
+  curve: 0.18   // arrow curvature (visual only)
+};
+
 const state = {
   mode: 'draw',        // draw | players | start
   poly: [],            // array of [nx, ny] normalized polygon vertices
   players: [],         // array of [nx, ny]
   start: -1,           // index into players
   order: null,         // array of player indices (cycle) or null
-  softViolation: false // whether the shown order breaks the adjacency rule
+  softViolation: false,// whether the shown order breaks the adjacency rule
+  cfg: { ...DEFAULT_CFG },
+  focusStep: -1        // -1 = show all throws; else isolate this throw index
 };
 
 let DPR = 1;
@@ -296,8 +392,8 @@ function buildCost(playersPx, polyPx, adjSet, softMode) {
     for (let j = i+1; j < n; j++)
       D = Math.max(D, dist(playersPx[i], playersPx[j]));
   if (D === 0) D = 1;
-  const dStar = 0.6 * D;
-  const W_LAT = 1.0, W_LEN = 1.5, PENALTY = 10;
+  const dStar = state.cfg.dStar * D;
+  const W_LAT = state.cfg.wLat, W_LEN = state.cfg.wLen, PENALTY = 10;
 
   const cost = Array.from({length:n}, () => new Array(n).fill(0));
   for (let i = 0; i < n; i++) {
@@ -395,8 +491,8 @@ function heuristicTSP(cost, s) {
 }
 
 /* -------------------- generate -------------------- */
-function generate() {
-  if (state.players.length < 3 || state.poly.length < 3) return;
+// Solve the cycle with the current weights; fills state.order/softViolation.
+function computeOrder() {
   const playersPx = state.players.map(toPx);
   const polyPx = state.poly.map(toPx);
   let s = state.start;
@@ -426,10 +522,25 @@ function generate() {
     }
     state.softViolation = bad;
   }
+}
+
+function generate() {
+  if (state.players.length < 3 || state.poly.length < 3) return;
+  computeOrder();
+  state.focusStep = -1;
+  stopPlay();
   save();
   draw();
   renderOrderBar();
   openOrderBar(true);
+}
+
+// Re-solve in place when weights change (keeps the panel/scrubber as-is).
+function regen() {
+  if (!state.order) return;
+  computeOrder();
+  draw();
+  renderOrderBar();
 }
 
 /* -------------------- rendering -------------------- */
@@ -472,9 +583,24 @@ function drawFreehand() {
 
 function drawPlayers() {
   const R = 19;
+  // when a throw is isolated, ring its thrower & receiver in the step colour
+  let fromIdx = -1, toIdx = -1, fCol = null;
+  if (state.order && state.focusStep >= 0) {
+    const n = state.order.length, f = state.focusStep;
+    fromIdx = state.order[f];
+    toIdx = state.order[(f + 1) % n];
+    fCol = stepColor(f, n);
+  }
   state.players.forEach((p, i) => {
     const [x, y] = toPx(p);
     const isStart = i === state.start;
+    if (i === fromIdx || i === toIdx) {
+      ctx.beginPath();
+      ctx.arc(x, y, R + 7, 0, Math.PI * 2);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = fCol;
+      ctx.stroke();
+    }
     ctx.beginPath();
     ctx.arc(x, y, R, 0, Math.PI * 2);
     ctx.fillStyle = isStart ? '#ffcf4d' : '#ffffff';
@@ -497,37 +623,69 @@ function drawPlayers() {
   });
 }
 
+// Sequence colour: sweep green -> teal -> blue -> violet across the order,
+// so you can follow the path start-to-finish even when lines cross.
+function stepColor(i, n) {
+  const h = 145 + (n <= 1 ? 0 : (i / (n - 1)) * 135); // 145..280
+  return `hsl(${h}, 85%, 58%)`;
+}
+
 function drawArrows() {
   const order = state.order;
   const n = order.length;
   const R = 19;
-  for (let i = 0; i < n; i++) {
-    const from = toPx(state.players[order[i]]);
-    const to   = toPx(state.players[order[(i+1) % n]]);
-    const isLoop = i === n - 1; // last edge returns to start
-    drawArrow(from, to, i + 1, isLoop, R);
+  const focus = state.focusStep;
+  const seg = i => [toPx(state.players[order[i]]), toPx(state.players[order[(i+1)%n]])];
+
+  if (focus < 0) {
+    // show every throw, coloured by order
+    for (let i = 0; i < n; i++) {
+      const [from, to] = seg(i);
+      drawArrow(from, to, i + 1, i === n - 1, R, { color: stepColor(i, n), badge: true });
+    }
+  } else {
+    // isolate one throw: others faint, the chosen one bright and on top
+    for (let i = 0; i < n; i++) {
+      if (i === focus) continue;
+      const [from, to] = seg(i);
+      drawArrow(from, to, i + 1, i === n - 1, R, { color: stepColor(i, n), alpha: 0.10, thin: true });
+    }
+    const [from, to] = seg(focus);
+    drawArrow(from, to, focus + 1, focus === n - 1, R, { color: stepColor(focus, n), badge: true, bold: true });
   }
 }
 
-function drawArrow(from, to, seq, dashed, R) {
+function drawArrow(from, to, seq, dashed, R, opts) {
+  opts = opts || {};
+  const color = opts.color || '#78f0b4';
+  const lw = opts.bold ? 6 : (opts.thin ? 2.5 : 4.5);
+
   const dx = to[0]-from[0], dy = to[1]-from[1];
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx/len, uy = dy/len;
   // trim endpoints to marker edges
   const ax = from[0] + ux*R, ay = from[1] + uy*R;
-  const bx = to[0] - ux*(R+8), by = to[1] - uy*(R+8);
-  // control point: offset perpendicular for a gentle curve
+  const bx = to[0] - ux*(R+9), by = to[1] - uy*(R+9);
+  // control point: offset perpendicular for a curve (spreads overlapping throws)
   const mx = (ax+bx)/2, my = (ay+by)/2;
-  const off = Math.min(len * 0.16, 60);
+  const off = Math.min(len * state.cfg.curve, 80);
   const cx = mx + (-uy) * off, cy = my + (ux) * off;
 
+  ctx.save();
+  ctx.globalAlpha = opts.alpha == null ? 1 : opts.alpha;
+  ctx.lineCap = 'round';
+  if (dashed) ctx.setLineDash([11, 9]); else ctx.setLineDash([]);
+
+  // dark halo underneath for contrast against the blue pool
   ctx.beginPath();
   ctx.moveTo(ax, ay);
   ctx.quadraticCurveTo(cx, cy, bx, by);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = dashed ? 'rgba(255,207,77,0.95)' : 'rgba(120,240,180,0.95)';
-  ctx.lineCap = 'round';
-  if (dashed) ctx.setLineDash([10, 8]); else ctx.setLineDash([]);
+  ctx.lineWidth = lw + 4;
+  ctx.strokeStyle = 'rgba(5,20,30,0.55)';
+  ctx.stroke();
+  // coloured line
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = color;
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -535,31 +693,35 @@ function drawArrow(from, to, seq, dashed, R) {
   const tx = bx - cx, ty = by - cy;
   const tl = Math.hypot(tx, ty) || 1;
   const hx = tx/tl, hy = ty/tl;
-  const size = 13;
+  const size = opts.bold ? 16 : 13;
   ctx.beginPath();
   ctx.moveTo(bx, by);
   ctx.lineTo(bx - hx*size - hy*size*0.55, by - hy*size + hx*size*0.55);
   ctx.lineTo(bx - hx*size + hy*size*0.55, by - hy*size - hx*size*0.55);
   ctx.closePath();
-  ctx.fillStyle = dashed ? '#ffcf4d' : '#78f0b4';
+  ctx.fillStyle = color;
   ctx.fill();
 
   // sequence badge at bezier midpoint (t=0.5)
-  const t = 0.5;
-  const px = (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx;
-  const py = (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by;
-  ctx.beginPath();
-  ctx.arc(px, py, 12, 0, Math.PI*2);
-  ctx.fillStyle = '#0a2c40';
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = dashed ? '#ffcf4d' : '#78f0b4';
-  ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 13px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(seq), px, py + 0.5);
+  if (opts.badge) {
+    const t = 0.5;
+    const px = (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx;
+    const py = (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by;
+    const br = opts.bold ? 15 : 12.5;
+    ctx.beginPath();
+    ctx.arc(px, py, br, 0, Math.PI*2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = '#0a2c40';
+    ctx.font = `bold ${opts.bold ? 16 : 14}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(seq), px, py + 0.5);
+  }
+  ctx.restore();
 }
 
 /* -------------------- order bar UI -------------------- */
