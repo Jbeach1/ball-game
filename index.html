@@ -580,8 +580,26 @@ function renderOrderBar() {
 /* -------------------- input handling -------------------- */
 function evtPos(e) {
   const rect = canvas.getBoundingClientRect();
-  const t = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  let t;
+  if (e.touches && e.touches.length)             t = e.touches[0];
+  else if (e.changedTouches && e.changedTouches.length) t = e.changedTouches[0];
+  else                                            t = e;
   return [t.clientX - rect.left, t.clientY - rect.top];
+}
+
+// Players stand on the rim, so accept taps inside the pool OR within a
+// margin of its edge (and snap them onto the boundary if just outside).
+function poolMargin(polyPx) {
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  polyPx.forEach(p=>{minX=Math.min(minX,p[0]);minY=Math.min(minY,p[1]);maxX=Math.max(maxX,p[0]);maxY=Math.max(maxY,p[1]);});
+  return Math.max(36, Math.hypot(maxX-minX, maxY-minY) * 0.07);
+}
+function nearOrInPoly(px, polyPx, margin) {
+  if (pointInPoly(px, polyPx)) return true;
+  for (let i = 0, j = polyPx.length - 1; i < polyPx.length; j = i++) {
+    if (distPointSeg(px, polyPx[j], polyPx[i]) <= margin) return true;
+  }
+  return false;
 }
 function markerAt(px) {
   const R = 24;
@@ -650,13 +668,14 @@ function onUp(e) {
     if (pointer.dragIdx >= 0) {
       if (pointer.moved) save();          // finished a drag
     } else if (!pointer.moved) {
-      // tap to add a player, only inside the pool
-      if (state.poly.length >= 3 && pointInPoly(px, state.poly.map(toPx))) {
+      // tap to add a player — inside the pool or on its rim
+      const polyPx = state.poly.map(toPx);
+      if (state.poly.length >= 3 && nearOrInPoly(px, polyPx, poolMargin(polyPx))) {
         state.players.push(toNorm(px[0], px[1]));
         state.order = null;
         save(); draw(); renderOrderBar();
       } else {
-        flashHint('Tap inside the pool to add a player');
+        flashHint('Tap on or inside the pool to add a player');
       }
     }
   } else if (state.mode === 'start' && !pointer.moved) {
@@ -680,19 +699,22 @@ function finishDrawing() {
   if (diag < 30) { draw(); flashHint('Draw a bigger shape'); return; }
   const eps = diag * 0.02;
   let simplified = rdp(path, eps);
-  // ensure closed & drop duplicate closing point
-  if (simplified.length > 1 && dist(simplified[0], simplified[simplified.length-1]) < eps)
+  // The polygon is always rendered closed (start↔end edge). If you finished
+  // near where you started, merge those points so there's no little notch;
+  // the tolerance is generous so you don't have to close the loop precisely.
+  if (simplified.length > 3 && dist(simplified[0], simplified[simplified.length-1]) < diag * 0.15)
     simplified.pop();
   if (simplified.length < 3) { draw(); return; }
   state.poly = simplified.map(p => toNorm(p[0], p[1]));
-  // drop players now outside the new shape
+  // drop players now well outside the new shape (rim players are kept)
   const polyPx = state.poly.map(toPx);
-  state.players = state.players.filter(p => pointInPoly(toPx(p), polyPx));
+  const m = poolMargin(polyPx);
+  state.players = state.players.filter(p => nearOrInPoly(toPx(p), polyPx, m));
   if (state.start >= state.players.length) state.start = -1;
   state.order = null;
   save(); draw(); renderOrderBar();
   setMode('players');
-  flashHint('Tap inside the pool to place players');
+  flashHint('Tap on or inside the pool to place players');
 }
 
 canvas.addEventListener('touchstart', onDown, { passive:false });
@@ -707,7 +729,7 @@ window.addEventListener('mouseup',   e => { if (pointer.down) onUp(e); });
 /* -------------------- toolbar / modes -------------------- */
 const modeHints = {
   draw:    'Drag to trace your pool outline',
-  players: 'Tap inside pool to add · drag to move · long-press to delete',
+  players: 'Tap on or inside pool to add · drag to move · long-press to delete',
   start:   'Tap a player to make them the start'
 };
 function setMode(m) {
