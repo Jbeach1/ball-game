@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b3d5c">
+<title>Ball Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #071e2b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #e8f4fb;
+    overscroll-behavior: none;
+  }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #canvas {
+    flex: 1 1 auto;
+    display: block;
+    width: 100%;
+    touch-action: none;
+    background:
+      radial-gradient(circle at 30% 20%, #0e3550, #071e2b 70%);
+  }
+
+  /* Top banner / hints */
+  #banner {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+    display: flex; justify-content: center; pointer-events: none;
+    z-index: 5;
+  }
+  #hint {
+    background: rgba(7,30,43,0.82);
+    border: 1px solid rgba(120,190,230,0.28);
+    backdrop-filter: blur(6px);
+    padding: 8px 14px; border-radius: 999px;
+    font-size: 13px; font-weight: 500; letter-spacing: .2px;
+    max-width: 92%; text-align: center;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  }
+
+  /* Order list bar (above toolbar) */
+  #orderBar {
+    background: rgba(7,30,43,0.94);
+    border-top: 1px solid rgba(120,190,230,0.18);
+    max-height: 0; overflow: hidden;
+    transition: max-height .25s ease;
+  }
+  #orderBar.open { max-height: 34vh; overflow-y: auto; }
+  #orderHead {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 14px;
+  }
+  #orderHead .chev { margin-left: auto; transition: transform .2s; opacity:.7; }
+  #orderBar.open #orderHead .chev { transform: rotate(180deg); }
+  #orderList { padding: 0 14px 12px; font-size: 15px; line-height: 1.9; word-spacing: 2px; }
+  #orderNotice { color: #ffcf6b; font-size: 12.5px; padding: 0 14px 10px; display:none; }
+  #orderNotice.show { display:block; }
+
+  /* Bottom toolbar */
+  #toolbar {
+    display: flex; gap: 6px;
+    padding: 8px 8px calc(env(safe-area-inset-bottom) + 8px);
+    background: #0a2c40;
+    border-top: 1px solid rgba(120,190,230,0.22);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+  }
+  .tbtn {
+    flex: 1 1 0; min-height: 52px;
+    border: none; border-radius: 12px;
+    background: #123c56; color: #cfe8f6;
+    font-size: 13px; font-weight: 600; letter-spacing: .3px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    cursor: pointer; transition: background .15s, transform .08s;
+    user-select: none;
+  }
+  .tbtn .ic { font-size: 19px; line-height: 1; }
+  .tbtn:active { transform: scale(0.94); }
+  .tbtn.active { background: #2f9bd6; color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset; }
+  .tbtn.disabled { opacity: .38; pointer-events: none; }
+  .tbtn.gen { background: #1f7a4d; color: #dfffec; }
+  .tbtn.gen.active { background: #27c073; }
+  .tbtn.clr { background: #6a2330; color: #ffd6dd; }
+
+  /* Confirm modal */
+  #modal {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(2,12,18,0.68); backdrop-filter: blur(3px);
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  #modal.show { display: flex; }
+  .card {
+    background: #0e3550; border: 1px solid rgba(120,190,230,0.28);
+    border-radius: 16px; padding: 22px 20px; max-width: 320px; width: 100%;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: #b9d6e6; margin-bottom: 18px; line-height: 1.4; }
+  .card .row { display: flex; gap: 10px; }
+  .card button {
+    flex: 1; min-height: 46px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  #mCancel { background: #1c4a66; color: #cfe8f6; }
+  #mOk { background: #c33b52; color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="banner"><div id="hint">Tap <b>Draw</b>, then trace your pool shape</div></div>
+  <canvas id="canvas"></canvas>
+
+  <div id="orderBar">
+    <div id="orderHead">
+      <span>🏐</span><span>Throw order</span><span class="chev">▲</span>
+    </div>
+    <div id="orderNotice"></div>
+    <div id="orderList"></div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tbtn" data-mode="draw"><span class="ic">✏️</span>Draw</button>
+    <button class="tbtn" data-mode="players"><span class="ic">👥</span>Players</button>
+    <button class="tbtn" data-mode="start"><span class="ic">⭐</span>Start</button>
+    <button class="tbtn gen" id="genBtn"><span class="ic">⚡</span>Generate</button>
+    <button class="tbtn clr" id="clearBtn"><span class="ic">🗑️</span>Clear</button>
+  </div>
+</div>
+
+<div id="modal">
+  <div class="card">
+    <h3>Clear everything?</h3>
+    <p>This wipes your pool shape, all players, and the current throw order.</p>
+    <div class="row">
+      <button id="mCancel">Cancel</button>
+      <button id="mOk">Clear</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   Ball Game — optimal throw order for a pool passing game.
+   All geometry stored in normalized 0..1 coords (x/w, y/h)
+   so it survives resize / orientation change.
+============================================================ */
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const hintEl = document.getElementById('hint');
+
+const state = {
+  mode: 'draw',        // draw | players | start
+  poly: [],            // array of [nx, ny] normalized polygon vertices
+  players: [],         // array of [nx, ny]
+  start: -1,           // index into players
+  order: null,         // array of player indices (cycle) or null
+  softViolation: false // whether the shown order breaks the adjacency rule
+};
+
+let DPR = 1;
+let W = 0, H = 0; // css pixel size of canvas
+
+/* -------------------- coord helpers -------------------- */
+function toPx(p)  { return [p[0] * W, p[1] * H]; }
+function toNorm(x, y) { return [x / W, y / H]; }
+function dist(a, b) { const dx = a[0]-b[0], dy = a[1]-b[1]; return Math.hypot(dx, dy); }
+
+/* -------------------- resize -------------------- */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  const rect = canvas.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  draw();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+
+/* -------------------- geometry -------------------- */
+// Ramer–Douglas–Peucker on a point list (pixel coords).
+function rdp(pts, eps) {
+  if (pts.length < 3) return pts.slice();
+  let dmax = 0, idx = 0;
+  const a = pts[0], b = pts[pts.length - 1];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpDist(pts[i], a, b);
+    if (d > dmax) { dmax = d; idx = i; }
+  }
+  if (dmax > eps) {
+    const left  = rdp(pts.slice(0, idx + 1), eps);
+    const right = rdp(pts.slice(idx), eps);
+    return left.slice(0, -1).concat(right);
+  }
+  return [a, b];
+}
+function perpDist(p, a, b) {
+  const dx = b[0]-a[0], dy = b[1]-a[1];
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return dist(p, a);
+  return Math.abs((p[0]-a[0])*dy - (p[1]-a[1])*dx) / len;
+}
+
+// Nearest point on segment ab to p, plus the squared distance.
+function nearestOnSeg(p, a, b) {
+  const dx = b[0]-a[0], dy = b[1]-a[1];
+  const l2 = dx*dx + dy*dy;
+  let t = l2 === 0 ? 0 : ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const proj = [a[0]+t*dx, a[1]+t*dy];
+  return { proj, t, d2: (p[0]-proj[0])**2 + (p[1]-proj[1])**2 };
+}
+function distPointSeg(p, a, b) { return Math.sqrt(nearestOnSeg(p, a, b).d2); }
+
+// Point-in-polygon (ray casting). poly = pixel-coord vertices.
+function pointInPoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    const hit = ((yi > pt[1]) !== (yj > pt[1])) &&
+                (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi);
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+function centroid(poly) {
+  let x = 0, y = 0, a = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const cross = poly[j][0]*poly[i][1] - poly[i][0]*poly[j][1];
+    a += cross;
+    x += (poly[j][0]+poly[i][0]) * cross;
+    y += (poly[j][1]+poly[i][1]) * cross;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-6) { // fallback: average
+    let sx=0, sy=0; poly.forEach(p=>{sx+=p[0];sy+=p[1];});
+    return [sx/poly.length, sy/poly.length];
+  }
+  return [x/(6*a), y/(6*a)];
+}
+
+/* -------------------- adjacency (perimeter order) -------------------- */
+// Returns for each player its cumulative-perimeter position, then the
+// circular ordering. Circular neighbors are "adjacent" (throw forbidden).
+function perimeterOrder(playersPx, polyPx) {
+  // cumulative length at each polygon vertex
+  const cum = [0];
+  for (let i = 0; i < polyPx.length; i++) {
+    const a = polyPx[i], b = polyPx[(i+1)%polyPx.length];
+    cum.push(cum[i] + dist(a, b));
+  }
+  const total = cum[cum.length - 1];
+  const C = centroid(polyPx);
+
+  const pos = playersPx.map((p, idx) => {
+    let best = Infinity, bestPos = 0;
+    for (let i = 0; i < polyPx.length; i++) {
+      const a = polyPx[i], b = polyPx[(i+1)%polyPx.length];
+      const { t, d2 } = nearestOnSeg(p, a, b);
+      if (d2 < best) {
+        best = d2;
+        bestPos = cum[i] + t * dist(a, b);
+      }
+    }
+    // angle fallback used only if perimeter is degenerate
+    const ang = Math.atan2(p[1]-C[1], p[0]-C[0]);
+    return { idx, pos: total > 0 ? bestPos : ang };
+  });
+
+  pos.sort((u, v) => u.pos - v.pos);
+  const ringOrder = pos.map(o => o.idx); // player indices around the pool
+  // adjacency set: neighbors in the ring
+  const adj = new Set();
+  const n = ringOrder.length;
+  for (let k = 0; k < n; k++) {
+    const a = ringOrder[k], b = ringOrder[(k+1)%n];
+    adj.add(key(a,b));
+  }
+  return adj;
+}
+function key(a, b) { return a < b ? a+'_'+b : b+'_'+a; }
+
+/* -------------------- edge cost -------------------- */
+function buildCost(playersPx, polyPx, adjSet, softMode) {
+  const n = playersPx.length;
+  const C = centroid(polyPx);
+  // D = max pairwise distance (pool scale)
+  let D = 0;
+  for (let i = 0; i < n; i++)
+    for (let j = i+1; j < n; j++)
+      D = Math.max(D, dist(playersPx[i], playersPx[j]));
+  if (D === 0) D = 1;
+  const dStar = 0.6 * D;
+  const W_LAT = 1.0, W_LEN = 1.5, PENALTY = 10;
+
+  const cost = Array.from({length:n}, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) { cost[i][j] = Infinity; continue; }
+      const d = dist(playersPx[i], playersPx[j]);
+      // lateral penalty: how close the throw segment passes to centroid
+      const dc = distPointSeg(C, playersPx[i], playersPx[j]);
+      const cLat = W_LAT * Math.pow(dc / (D/2), 2);
+      const cLen = W_LEN * Math.pow((d - dStar) / D, 2);
+      let c = cLat + cLen;
+      if (adjSet.has(key(i, j))) {
+        c = softMode ? c + PENALTY : Infinity;
+      }
+      cost[i][j] = c;
+    }
+  }
+  return cost;
+}
+
+/* -------------------- Held–Karp exact TSP cycle -------------------- */
+// Min-cost Hamiltonian cycle fixed to start at `s`. Returns {order, cost, feasible}
+function heldKarp(cost, s) {
+  const n = cost.length;
+  const FULL = 1 << n;
+  const INF = Infinity;
+  // dp[mask][j]: min cost path start=s, visited=mask, currently at j. s always in mask.
+  const dp = Array.from({length: FULL}, () => new Array(n).fill(INF));
+  const par = Array.from({length: FULL}, () => new Array(n).fill(-1));
+  dp[1 << s][s] = 0;
+  for (let mask = 0; mask < FULL; mask++) {
+    if (!(mask & (1 << s))) continue;
+    for (let j = 0; j < n; j++) {
+      if (dp[mask][j] === INF || !(mask & (1 << j))) continue;
+      const base = dp[mask][j];
+      for (let k = 0; k < n; k++) {
+        if (mask & (1 << k)) continue;
+        const nc = base + cost[j][k];
+        if (nc < dp[mask | (1<<k)][k]) {
+          dp[mask | (1<<k)][k] = nc;
+          par[mask | (1<<k)][k] = j;
+        }
+      }
+    }
+  }
+  // close the cycle back to s
+  let best = INF, last = -1;
+  const full = FULL - 1;
+  for (let j = 0; j < n; j++) {
+    if (j === s) continue;
+    const total = dp[full][j] + cost[j][s];
+    if (total < best) { best = total; last = j; }
+  }
+  if (n === 1) return { order: [s], cost: 0, feasible: true };
+  if (last === -1) return { order: null, cost: INF, feasible: false };
+  // reconstruct
+  const order = [];
+  let mask = full, j = last;
+  while (j !== -1) {
+    order.push(j);
+    const pj = par[mask][j];
+    mask ^= (1 << j);
+    j = pj;
+  }
+  order.reverse(); // now starts at s
+  return { order, cost: best, feasible: isFinite(best) };
+}
+
+// Nearest-neighbor + 2-opt fallback for larger n (>14). Rarely needed.
+function heuristicTSP(cost, s) {
+  const n = cost.length;
+  const visited = new Array(n).fill(false);
+  const order = [s]; visited[s] = true;
+  let cur = s;
+  for (let step = 1; step < n; step++) {
+    let best = Infinity, nx = -1;
+    for (let k = 0; k < n; k++) {
+      if (!visited[k] && cost[cur][k] < best) { best = cost[cur][k]; nx = k; }
+    }
+    if (nx === -1) { for (let k=0;k<n;k++) if(!visited[k]){nx=k;break;} }
+    visited[nx] = true; order.push(nx); cur = nx;
+  }
+  const cyc = a => { let t=0; for(let i=0;i<a.length;i++) t+=cost[a[i]][a[(i+1)%a.length]]; return t; };
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < n - 1; i++) {
+      for (let k = i + 1; k < n; k++) {
+        const cand = order.slice(0, i).concat(order.slice(i, k+1).reverse(), order.slice(k+1));
+        if (cyc(cand) + 1e-9 < cyc(order)) { order.splice(0, n, ...cand); improved = true; }
+      }
+    }
+  }
+  return { order, cost: cyc(order), feasible: isFinite(cyc(order)) };
+}
+
+/* -------------------- generate -------------------- */
+function generate() {
+  if (state.players.length < 3 || state.poly.length < 3) return;
+  const playersPx = state.players.map(toPx);
+  const polyPx = state.poly.map(toPx);
+  let s = state.start;
+  if (s < 0 || s >= playersPx.length) s = 0;
+
+  const adjSet = perimeterOrder(playersPx, polyPx);
+  const n = playersPx.length;
+
+  const solve = (soft) => {
+    const cost = buildCost(playersPx, polyPx, adjSet, soft);
+    return n <= 14 ? heldKarp(cost, s) : heuristicTSP(cost, s);
+  };
+
+  let res = solve(false);
+  state.softViolation = false;
+  if (!res.feasible) {            // adjacency ban impossible -> soften
+    res = solve(true);
+    state.softViolation = true;
+  }
+  state.order = res.order;
+  // did the final order still contain any adjacent throw?
+  if (state.order) {
+    let bad = false;
+    for (let i = 0; i < state.order.length; i++) {
+      const a = state.order[i], b = state.order[(i+1)%state.order.length];
+      if (adjSet.has(key(a, b))) bad = true;
+    }
+    state.softViolation = bad;
+  }
+  save();
+  draw();
+  renderOrderBar();
+  openOrderBar(true);
+}
+
+/* -------------------- rendering -------------------- */
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawPool();
+  if (state.order && state.players.length >= 3) drawArrows();
+  drawPlayers();
+  if (drawingPath && drawingPath.length > 1) drawFreehand();
+}
+
+function drawPool() {
+  if (state.poly.length < 2) return;
+  const pts = state.poly.map(toPx);
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, 'rgba(52,163,214,0.42)');
+  g.addColorStop(1, 'rgba(28,120,175,0.55)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#7fd3ff';
+  ctx.stroke();
+}
+
+let drawingPath = null;
+function drawFreehand() {
+  ctx.beginPath();
+  ctx.moveTo(drawingPath[0][0], drawingPath[0][1]);
+  for (let i = 1; i < drawingPath.length; i++) ctx.lineTo(drawingPath[i][0], drawingPath[i][1]);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(160,225,255,0.9)';
+  ctx.setLineDash([6, 6]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawPlayers() {
+  const R = 19;
+  state.players.forEach((p, i) => {
+    const [x, y] = toPx(p);
+    const isStart = i === state.start;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = isStart ? '#ffcf4d' : '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = isStart ? 4 : 2.5;
+    ctx.strokeStyle = isStart ? '#ff9d00' : '#0a2c40';
+    ctx.stroke();
+    if (isStart) {
+      ctx.beginPath();
+      ctx.arc(x, y, R + 6, 0, Math.PI * 2);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(255,207,77,0.7)';
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#0a2c40';
+    ctx.font = 'bold 16px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), x, y + 0.5);
+  });
+}
+
+function drawArrows() {
+  const order = state.order;
+  const n = order.length;
+  const R = 19;
+  for (let i = 0; i < n; i++) {
+    const from = toPx(state.players[order[i]]);
+    const to   = toPx(state.players[order[(i+1) % n]]);
+    const isLoop = i === n - 1; // last edge returns to start
+    drawArrow(from, to, i + 1, isLoop, R);
+  }
+}
+
+function drawArrow(from, to, seq, dashed, R) {
+  const dx = to[0]-from[0], dy = to[1]-from[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx/len, uy = dy/len;
+  // trim endpoints to marker edges
+  const ax = from[0] + ux*R, ay = from[1] + uy*R;
+  const bx = to[0] - ux*(R+8), by = to[1] - uy*(R+8);
+  // control point: offset perpendicular for a gentle curve
+  const mx = (ax+bx)/2, my = (ay+by)/2;
+  const off = Math.min(len * 0.16, 60);
+  const cx = mx + (-uy) * off, cy = my + (ux) * off;
+
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.quadraticCurveTo(cx, cy, bx, by);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = dashed ? 'rgba(255,207,77,0.95)' : 'rgba(120,240,180,0.95)';
+  ctx.lineCap = 'round';
+  if (dashed) ctx.setLineDash([10, 8]); else ctx.setLineDash([]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // arrowhead — tangent at end of bezier points from control -> b
+  const tx = bx - cx, ty = by - cy;
+  const tl = Math.hypot(tx, ty) || 1;
+  const hx = tx/tl, hy = ty/tl;
+  const size = 13;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(bx - hx*size - hy*size*0.55, by - hy*size + hx*size*0.55);
+  ctx.lineTo(bx - hx*size + hy*size*0.55, by - hy*size - hx*size*0.55);
+  ctx.closePath();
+  ctx.fillStyle = dashed ? '#ffcf4d' : '#78f0b4';
+  ctx.fill();
+
+  // sequence badge at bezier midpoint (t=0.5)
+  const t = 0.5;
+  const px = (1-t)*(1-t)*ax + 2*(1-t)*t*cx + t*t*bx;
+  const py = (1-t)*(1-t)*ay + 2*(1-t)*t*cy + t*t*by;
+  ctx.beginPath();
+  ctx.arc(px, py, 12, 0, Math.PI*2);
+  ctx.fillStyle = '#0a2c40';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = dashed ? '#ffcf4d' : '#78f0b4';
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 13px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(seq), px, py + 0.5);
+}
+
+/* -------------------- order bar UI -------------------- */
+const orderBar = document.getElementById('orderBar');
+const orderList = document.getElementById('orderList');
+const orderNotice = document.getElementById('orderNotice');
+document.getElementById('orderHead').addEventListener('click', () => orderBar.classList.toggle('open'));
+function openOrderBar(open) { orderBar.classList.toggle('open', open); }
+function renderOrderBar() {
+  if (!state.order) { orderList.textContent=''; return; }
+  const seq = state.order.map(i => 'P' + (i+1));
+  seq.push(seq[0] + ' ↺'); // show loop back to start
+  orderList.textContent = seq.join('  →  ');
+  orderNotice.classList.toggle('show', state.softViolation);
+  orderNotice.textContent = state.softViolation ? '⚠️ adjacent throw unavoidable' : '';
+}
+
+/* -------------------- input handling -------------------- */
+function evtPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  return [t.clientX - rect.left, t.clientY - rect.top];
+}
+function markerAt(px) {
+  const R = 24;
+  for (let i = state.players.length - 1; i >= 0; i--) {
+    if (dist(px, toPx(state.players[i])) <= R) return i;
+  }
+  return -1;
+}
+
+let pointer = { down:false, dragIdx:-1, moved:false, longTimer:null, startPx:null };
+
+function onDown(e) {
+  e.preventDefault();
+  const px = evtPos(e);
+  pointer.down = true; pointer.moved = false; pointer.startPx = px;
+
+  if (state.mode === 'draw') {
+    drawingPath = [px];
+    state.order = null; // invalidate old result
+  } else if (state.mode === 'players') {
+    const idx = markerAt(px);
+    if (idx >= 0) {
+      pointer.dragIdx = idx;
+      // long-press to delete
+      pointer.longTimer = setTimeout(() => {
+        if (!pointer.moved) {
+          state.players.splice(idx, 1);
+          if (state.start === idx) state.start = -1;
+          else if (state.start > idx) state.start--;
+          state.order = null;
+          pointer.dragIdx = -1; pointer.down = false;
+          save(); draw(); renderOrderBar();
+          if (navigator.vibrate) navigator.vibrate(30);
+        }
+      }, 500);
+    }
+  }
+}
+
+function onMove(e) {
+  if (!pointer.down) return;
+  e.preventDefault();
+  const px = evtPos(e);
+  if (pointer.startPx && dist(px, pointer.startPx) > 6) pointer.moved = true;
+
+  if (state.mode === 'draw' && drawingPath) {
+    drawingPath.push(px);
+    draw();
+  } else if (state.mode === 'players' && pointer.dragIdx >= 0) {
+    if (pointer.moved && pointer.longTimer) { clearTimeout(pointer.longTimer); pointer.longTimer = null; }
+    state.players[pointer.dragIdx] = toNorm(px[0], px[1]);
+    state.order = null;
+    draw();
+  }
+}
+
+function onUp(e) {
+  if (!pointer.down) return;
+  e.preventDefault();
+  if (pointer.longTimer) { clearTimeout(pointer.longTimer); pointer.longTimer = null; }
+  const px = evtPos(e);
+
+  if (state.mode === 'draw' && drawingPath) {
+    finishDrawing();
+  } else if (state.mode === 'players') {
+    if (pointer.dragIdx >= 0) {
+      if (pointer.moved) save();          // finished a drag
+    } else if (!pointer.moved) {
+      // tap to add a player, only inside the pool
+      if (state.poly.length >= 3 && pointInPoly(px, state.poly.map(toPx))) {
+        state.players.push(toNorm(px[0], px[1]));
+        state.order = null;
+        save(); draw(); renderOrderBar();
+      } else {
+        flashHint('Tap inside the pool to add a player');
+      }
+    }
+  } else if (state.mode === 'start' && !pointer.moved) {
+    const idx = markerAt(px);
+    if (idx >= 0) {
+      state.start = idx;
+      state.order = null;
+      save(); draw(); renderOrderBar();
+    }
+  }
+  pointer.down = false; pointer.dragIdx = -1; pointer.moved = false; pointer.startPx = null;
+}
+
+function finishDrawing() {
+  let path = drawingPath; drawingPath = null;
+  if (!path || path.length < 3) { draw(); return; }
+  // simplify with RDP, epsilon ~ 2% of bounding diagonal
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  path.forEach(p => { minX=Math.min(minX,p[0]); minY=Math.min(minY,p[1]); maxX=Math.max(maxX,p[0]); maxY=Math.max(maxY,p[1]); });
+  const diag = Math.hypot(maxX-minX, maxY-minY);
+  if (diag < 30) { draw(); flashHint('Draw a bigger shape'); return; }
+  const eps = diag * 0.02;
+  let simplified = rdp(path, eps);
+  // ensure closed & drop duplicate closing point
+  if (simplified.length > 1 && dist(simplified[0], simplified[simplified.length-1]) < eps)
+    simplified.pop();
+  if (simplified.length < 3) { draw(); return; }
+  state.poly = simplified.map(p => toNorm(p[0], p[1]));
+  // drop players now outside the new shape
+  const polyPx = state.poly.map(toPx);
+  state.players = state.players.filter(p => pointInPoly(toPx(p), polyPx));
+  if (state.start >= state.players.length) state.start = -1;
+  state.order = null;
+  save(); draw(); renderOrderBar();
+  setMode('players');
+  flashHint('Tap inside the pool to place players');
+}
+
+canvas.addEventListener('touchstart', onDown, { passive:false });
+canvas.addEventListener('touchmove',  onMove, { passive:false });
+canvas.addEventListener('touchend',   onUp,   { passive:false });
+canvas.addEventListener('touchcancel',onUp,   { passive:false });
+// mouse fallback for desktop testing
+canvas.addEventListener('mousedown', onDown);
+window.addEventListener('mousemove', e => { if (pointer.down) onMove(e); });
+window.addEventListener('mouseup',   e => { if (pointer.down) onUp(e); });
+
+/* -------------------- toolbar / modes -------------------- */
+const modeHints = {
+  draw:    'Drag to trace your pool outline',
+  players: 'Tap inside pool to add · drag to move · long-press to delete',
+  start:   'Tap a player to make them the start'
+};
+function setMode(m) {
+  state.mode = m;
+  document.querySelectorAll('.tbtn[data-mode]').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === m));
+  if (modeHints[m]) flashHint(modeHints[m], true);
+  updateGenBtn();
+}
+document.querySelectorAll('.tbtn[data-mode]').forEach(b =>
+  b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+const genBtn = document.getElementById('genBtn');
+genBtn.addEventListener('click', () => {
+  if (state.players.length < 3) { flashHint('Add at least 3 players first'); return; }
+  if (state.poly.length < 3) { flashHint('Draw a pool first'); return; }
+  generate();
+});
+function updateGenBtn() {
+  const ok = state.players.length >= 3 && state.poly.length >= 3;
+  genBtn.classList.toggle('disabled', !ok);
+}
+
+/* -------------------- clear modal -------------------- */
+const modal = document.getElementById('modal');
+document.getElementById('clearBtn').addEventListener('click', () => modal.classList.add('show'));
+document.getElementById('mCancel').addEventListener('click', () => modal.classList.remove('show'));
+document.getElementById('mOk').addEventListener('click', () => {
+  state.poly = []; state.players = []; state.start = -1; state.order = null; state.softViolation = false;
+  drawingPath = null;
+  modal.classList.remove('show');
+  save(); draw(); renderOrderBar(); openOrderBar(false);
+  setMode('draw');
+  flashHint('Tap Draw, then trace your pool shape');
+});
+
+/* -------------------- hint -------------------- */
+let hintTimer = null;
+function flashHint(text, sticky) {
+  hintEl.innerHTML = text;
+  if (hintTimer) clearTimeout(hintTimer);
+  if (!sticky) hintTimer = setTimeout(() => {
+    if (modeHints[state.mode]) hintEl.innerHTML = modeHints[state.mode];
+  }, 2200);
+}
+
+/* -------------------- persistence -------------------- */
+const KEY = 'ballgame.v1';
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({
+      poly: state.poly, players: state.players, start: state.start
+    }));
+  } catch (e) {}
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (Array.isArray(d.poly)) state.poly = d.poly;
+    if (Array.isArray(d.players)) state.players = d.players;
+    if (typeof d.start === 'number') state.start = d.start;
+  } catch (e) {}
+}
+
+/* -------------------- boot -------------------- */
+load();
+resize();
+setMode(state.poly.length >= 3 ? 'players' : 'draw');
+renderOrderBar();
+updateGenBtn();
+</script>
+</body>
+</html>
