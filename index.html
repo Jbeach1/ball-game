@@ -67,6 +67,7 @@
     box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
   }
   .tbtn {
+    position: relative;
     flex: 1 1 0; min-height: 52px;
     border: none; border-radius: 12px;
     background: #123c56; color: #cfe8f6;
@@ -82,6 +83,12 @@
   .tbtn.gen { background: #1f7a4d; color: #dfffec; }
   .tbtn.gen.active { background: #27c073; }
   .tbtn.clr { background: #6a2330; color: #ffd6dd; }
+  .count {
+    position: absolute; top: 5px; right: 7px;
+    min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+    background: #eaf6ff; color: #0a2c40; font-size: 11px; font-weight: 800; line-height: 1;
+    display: none; align-items: center; justify-content: center;
+  }
 
   /* Step scrubber (inside order bar) */
   #stepControls { display:flex; gap:6px; padding: 2px 14px 8px; }
@@ -183,7 +190,7 @@
 
   <div id="toolbar">
     <button class="tbtn" data-mode="draw"><svg class="ic" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>Draw</button>
-    <button class="tbtn" data-mode="players"><svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Players</button>
+    <button class="tbtn" data-mode="players"><svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Players<span class="count" id="playersCount"></span></button>
     <button class="tbtn" data-mode="start"><svg class="ic" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Start</button>
     <button class="tbtn gen" id="genBtn"><svg class="ic" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Generate</button>
     <button class="tbtn clr" id="clearBtn"><svg class="ic" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Clear</button>
@@ -591,10 +598,9 @@ function drawPlayers() {
     toIdx = state.order[(f + 1) % n];
     fCol = stepColor(f, n);
   }
-  // map each player -> its position in the throw cycle (0 = start), for the badge
-  let orderPos = null, N = 0;
+  // map each player -> its position in the throw cycle (0 = start) for its number
+  let orderPos = null;
   if (state.order) {
-    N = state.order.length;
     orderPos = new Array(state.players.length).fill(-1);
     state.order.forEach((pi, k) => { orderPos[pi] = k; });
   }
@@ -622,35 +628,15 @@ function drawPlayers() {
       ctx.strokeStyle = 'rgba(255,207,77,0.7)';
       ctx.stroke();
     }
-    ctx.fillStyle = '#0a2c40';
-    ctx.font = 'bold 16px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(i + 1), x, y + 0.5);
-  });
-
-  // second pass: throw-order badge on each player's top-right (so the whole
-  // sequence reads straight off the player positions: 1 -> 2 -> 3 -> ...)
-  if (orderPos) {
-    state.players.forEach((p, i) => {
-      if (orderPos[i] < 0) return;
-      const [x, y] = toPx(p);
-      const pos = orderPos[i];
-      const bx = x + R * 0.78, by = y - R * 0.78, rb = 12;
-      ctx.beginPath();
-      ctx.arc(bx, by, rb, 0, Math.PI * 2);
-      ctx.fillStyle = stepColor(pos, N);
-      ctx.fill();
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
-      ctx.fillStyle = '#08222f';
-      ctx.font = 'bold 13px -apple-system, sans-serif';
+    // number only appears after Generate, and it IS the throw order (start = 1)
+    if (orderPos && orderPos[i] >= 0) {
+      ctx.fillStyle = '#0a2c40';
+      ctx.font = 'bold 17px -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(pos + 1), bx, by + 0.5);
-    });
-  }
+      ctx.fillText(String(orderPos[i] + 1), x, y + 0.5);
+    }
+  });
 }
 
 // Sequence colour: sweep green -> teal -> blue -> violet across the order,
@@ -757,13 +743,14 @@ function renderOrderBar() {
   const order = state.order, n = order.length;
   stepChips.innerHTML = '';
   for (let i = 0; i < n; i++) {
-    const a = order[i], b = order[(i+1)%n];
+    // players are numbered by throw order, so throw i is from (i+1) to next
+    const fromL = i + 1, toL = (i + 1) % n + 1;
     const sel = state.focusStep === i;
     const chip = document.createElement('div');
     chip.className = 'chip' + (sel ? ' sel' : '');
     chip.style.borderColor = sel ? stepColor(i, n) : 'transparent';
     chip.style.background = sel ? 'rgba(47,155,214,0.30)' : '';
-    chip.textContent = `${i+1}. P${a+1}→P${b+1}`;
+    chip.textContent = `${fromL} → ${toL}`;
     chip.addEventListener('click', () => selectStep(i));
     stepChips.appendChild(chip);
   }
@@ -780,9 +767,9 @@ function updateDetail() {
     stepDetail.innerHTML = `Showing all <b>${n}</b> throws — tap a step (or ▸ Play) to isolate it.`;
     return;
   }
-  const i = state.focusStep, a = state.order[i], b = state.order[(i+1)%n];
+  const i = state.focusStep, fromL = i + 1, toL = (i + 1) % n + 1;
   stepDetail.innerHTML =
-    `Throw <b>${i+1}</b> of ${n}: <b>P${a+1} → P${b+1}</b> &nbsp;·&nbsp; ${throwInfo(i)}` +
+    `Throw <b>${i+1}</b> of ${n}: <b>${fromL} → ${toL}</b> &nbsp;·&nbsp; ${throwInfo(i)}` +
     (i === n-1 ? ' &nbsp;·&nbsp; loops back to start' : '');
 }
 
@@ -914,7 +901,7 @@ function onDown(e) {
           else if (state.start > idx) state.start--;
           state.order = null;
           pointer.dragIdx = -1; pointer.down = false;
-          save(); draw(); renderOrderBar();
+          save(); draw(); renderOrderBar(); updateGenBtn();
           if (navigator.vibrate) navigator.vibrate(30);
         }
       }, 500);
@@ -956,7 +943,7 @@ function onUp(e) {
       if (state.poly.length >= 3 && nearOrInPoly(px, polyPx, poolMargin(polyPx))) {
         state.players.push(toNorm(px[0], px[1]));
         state.order = null;
-        save(); draw(); renderOrderBar();
+        save(); draw(); renderOrderBar(); updateGenBtn();
       } else {
         flashHint('Tap on or inside the pool to add a player');
       }
@@ -1031,9 +1018,13 @@ genBtn.addEventListener('click', () => {
   if (state.poly.length < 3) { flashHint('Draw a pool first'); return; }
   generate();
 });
+const playersCount = document.getElementById('playersCount');
 function updateGenBtn() {
   const ok = state.players.length >= 3 && state.poly.length >= 3;
   genBtn.classList.toggle('disabled', !ok);
+  const c = state.players.length;
+  playersCount.textContent = c;
+  playersCount.style.display = c > 0 ? 'flex' : 'none';
 }
 
 /* -------------------- clear modal -------------------- */
