@@ -55,7 +55,6 @@
   }
   #orderHead .chev { margin-left: auto; transition: transform .2s; opacity:.7; }
   #orderBar.open #orderHead .chev { transform: rotate(180deg); }
-  #orderList { padding: 0 14px 12px; font-size: 15px; line-height: 1.9; word-spacing: 2px; }
   #orderNotice { color: #ffcf6b; font-size: 12.5px; padding: 0 14px 10px; display:none; }
   #orderNotice.show { display:block; }
 
@@ -724,20 +723,131 @@ function drawArrow(from, to, seq, dashed, R, opts) {
   ctx.restore();
 }
 
-/* -------------------- order bar UI -------------------- */
-const orderBar = document.getElementById('orderBar');
-const orderList = document.getElementById('orderList');
-const orderNotice = document.getElementById('orderNotice');
+/* -------------------- order bar / step scrubber -------------------- */
+const orderBar   = document.getElementById('orderBar');
+const orderNotice= document.getElementById('orderNotice');
+const stepChips  = document.getElementById('stepChips');
+const stepDetail = document.getElementById('stepDetail');
+const allBtn  = document.getElementById('allBtn');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const playBtn = document.getElementById('playBtn');
+
 document.getElementById('orderHead').addEventListener('click', () => orderBar.classList.toggle('open'));
 function openOrderBar(open) { orderBar.classList.toggle('open', open); }
+
 function renderOrderBar() {
-  if (!state.order) { orderList.textContent=''; return; }
-  const seq = state.order.map(i => 'P' + (i+1));
-  seq.push(seq[0] + ' ↺'); // show loop back to start
-  orderList.textContent = seq.join('  →  ');
   orderNotice.classList.toggle('show', state.softViolation);
   orderNotice.textContent = state.softViolation ? '⚠️ adjacent throw unavoidable' : '';
+  const on = !!state.order;
+  [allBtn, prevBtn, nextBtn, playBtn].forEach(b => { b.disabled = !on; b.style.opacity = on ? '1' : '.4'; });
+  if (!on) { stepChips.innerHTML = ''; stepDetail.textContent = ''; stopPlay(); return; }
+
+  const order = state.order, n = order.length;
+  stepChips.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const a = order[i], b = order[(i+1)%n];
+    const sel = state.focusStep === i;
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (sel ? ' sel' : '');
+    chip.style.borderColor = sel ? stepColor(i, n) : 'transparent';
+    chip.style.background = sel ? 'rgba(47,155,214,0.30)' : '';
+    chip.textContent = `${i+1}. P${a+1}→P${b+1}`;
+    chip.addEventListener('click', () => selectStep(i));
+    stepChips.appendChild(chip);
+  }
+  allBtn.classList.toggle('active', state.focusStep < 0);
+  updateDetail();
+  const selEl = stepChips.querySelector('.chip.sel');
+  if (selEl) selEl.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
+
+function updateDetail() {
+  if (!state.order) { stepDetail.textContent = ''; return; }
+  const n = state.order.length;
+  if (state.focusStep < 0) {
+    stepDetail.innerHTML = `Showing all <b>${n}</b> throws — tap a step (or ▸ Play) to isolate it.`;
+    return;
+  }
+  const i = state.focusStep, a = state.order[i], b = state.order[(i+1)%n];
+  stepDetail.innerHTML =
+    `Throw <b>${i+1}</b> of ${n}: <b>P${a+1} → P${b+1}</b> &nbsp;·&nbsp; ${throwInfo(i)}` +
+    (i === n-1 ? ' &nbsp;·&nbsp; loops back to start' : '');
+}
+
+// classify a throw as short/medium/long + cross/lateral for the detail line
+function throwInfo(i) {
+  const order = state.order, n = order.length;
+  const pk = state.players.map(toPx);
+  const A = pk[order[i]], B = pk[order[(i+1)%n]];
+  let D = 0;
+  for (let x = 0; x < pk.length; x++) for (let y = x+1; y < pk.length; y++) D = Math.max(D, dist(pk[x], pk[y]));
+  if (D === 0) D = 1;
+  const r = dist(A, B) / D;
+  const lenTxt = r < 0.4 ? 'short' : r > 0.8 ? 'long' : 'medium';
+  const C = centroid(state.poly.map(toPx));
+  const cross = distPointSeg(C, A, B) < D * 0.2 ? 'cross-pool' : 'lateral';
+  return `${lenTxt}, ${cross}`;
+}
+
+function selectStep(i) { stopPlay(); state.focusStep = i; draw(); renderOrderBar(); }
+function stepBy(d) {
+  if (!state.order) return;
+  const n = state.order.length;
+  let f = state.focusStep;
+  f = f < 0 ? (d > 0 ? 0 : n - 1) : (f + d + n) % n;
+  state.focusStep = f; draw(); renderOrderBar();
+}
+allBtn .addEventListener('click', () => { stopPlay(); state.focusStep = -1; draw(); renderOrderBar(); });
+prevBtn.addEventListener('click', () => { stopPlay(); stepBy(-1); });
+nextBtn.addEventListener('click', () => { stopPlay(); stepBy(1); });
+playBtn.addEventListener('click', togglePlay);
+
+let playTimer = null;
+function togglePlay() { playTimer ? stopPlay() : startPlay(); }
+function startPlay() {
+  if (!state.order) return;
+  if (state.focusStep < 0) state.focusStep = 0;
+  playBtn.textContent = '▪ Stop'; playBtn.classList.add('active');
+  draw(); renderOrderBar();
+  playTimer = setInterval(() => stepBy(1), 950);
+}
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  playBtn.textContent = '▸ Play'; playBtn.classList.remove('active');
+}
+
+/* -------------------- weights sheet -------------------- */
+const sheet = document.getElementById('sheet');
+document.getElementById('gear').addEventListener('click', () => sheet.classList.add('open'));
+document.getElementById('sheetClose').addEventListener('click', () => sheet.classList.remove('open'));
+
+const SLIDERS = [
+  ['sLat',  'vLat',  'wLat',  v => v.toFixed(1)],
+  ['sLen',  'vLen',  'wLen',  v => v.toFixed(1)],
+  ['sStar', 'vStar', 'dStar', v => Math.round(v*100) + '%'],
+  ['sCurve','vCurve','curve', v => Math.round(v*100) + '%'],
+];
+function syncSliders() {
+  SLIDERS.forEach(([sid, vid, ckey, fmt]) => {
+    document.getElementById(sid).value = state.cfg[ckey];
+    document.getElementById(vid).textContent = fmt(state.cfg[ckey]);
+  });
+}
+SLIDERS.forEach(([sid, vid, ckey, fmt]) => {
+  const el = document.getElementById(sid);
+  el.addEventListener('input', () => {
+    state.cfg[ckey] = parseFloat(el.value);
+    document.getElementById(vid).textContent = fmt(state.cfg[ckey]);
+    save();
+    if (ckey === 'curve') draw();   // visual only — no re-solve
+    else regen();                    // re-solve the order with new weights
+  });
+});
+document.getElementById('resetCfg').addEventListener('click', () => {
+  state.cfg = { ...DEFAULT_CFG };
+  syncSliders(); save(); regen(); draw();
+});
 
 /* -------------------- input handling -------------------- */
 function evtPos(e) {
@@ -828,7 +938,7 @@ function onUp(e) {
     finishDrawing();
   } else if (state.mode === 'players') {
     if (pointer.dragIdx >= 0) {
-      if (pointer.moved) save();          // finished a drag
+      if (pointer.moved) { save(); renderOrderBar(); }  // finished a drag (order was cleared)
     } else if (!pointer.moved) {
       // tap to add a player — inside the pool or on its rim
       const polyPx = state.poly.map(toPx);
@@ -921,6 +1031,7 @@ document.getElementById('clearBtn').addEventListener('click', () => modal.classL
 document.getElementById('mCancel').addEventListener('click', () => modal.classList.remove('show'));
 document.getElementById('mOk').addEventListener('click', () => {
   state.poly = []; state.players = []; state.start = -1; state.order = null; state.softViolation = false;
+  state.focusStep = -1; stopPlay();
   drawingPath = null;
   modal.classList.remove('show');
   save(); draw(); renderOrderBar(); openOrderBar(false);
@@ -943,7 +1054,7 @@ const KEY = 'ballgame.v1';
 function save() {
   try {
     localStorage.setItem(KEY, JSON.stringify({
-      poly: state.poly, players: state.players, start: state.start
+      poly: state.poly, players: state.players, start: state.start, cfg: state.cfg
     }));
   } catch (e) {}
 }
@@ -955,11 +1066,13 @@ function load() {
     if (Array.isArray(d.poly)) state.poly = d.poly;
     if (Array.isArray(d.players)) state.players = d.players;
     if (typeof d.start === 'number') state.start = d.start;
+    if (d.cfg && typeof d.cfg === 'object') state.cfg = { ...DEFAULT_CFG, ...d.cfg };
   } catch (e) {}
 }
 
 /* -------------------- boot -------------------- */
 load();
+syncSliders();
 resize();
 setMode(state.poly.length >= 3 ? 'players' : 'draw');
 renderOrderBar();
